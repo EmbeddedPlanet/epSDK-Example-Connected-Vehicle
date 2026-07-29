@@ -57,7 +57,6 @@
 #include "fds.h"
 #include "nrfx_twi.h"
 #include "nrf_drv_clock.h"
-#include "nrf_crypto.h"
 #include "uart_helper.h"
 #include "cell_helper.h"
 #include "mcp2515.h"
@@ -68,6 +67,9 @@
 #include "time_helper.h"
 #include "obdii.h"
 #include "sc16is750.h"
+#if defined(THINGSBOARD_HTTPS_INTEGRATION) || defined(AZURE_MQTTS_X509) || defined(AWS_MQTTS_X509) || defined(AWS_HTTPS_X509) || defined(AZURE_MQTTS_SAS) || defined(AZURE_HTTPS_SAS)
+#include "nrf_crypto.h"
+#endif
 
 SemaphoreHandle_t cellularSemaphore;
 SemaphoreHandle_t dataReadySemaphore;
@@ -77,7 +79,7 @@ SemaphoreHandle_t xSensPwrEnSemaphore;
 
 // FreeRTOS defines
 #define mainLED_TASK_STACK_SIZE             128
-#define mainCell_TASK_STACK_SIZE            4500
+#define mainCell_TASK_STACK_SIZE            8196
 #define DEAD_BEEF                           0xDEADBEEF                              /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 #define CELL_QUEUE_TIMEOUT                  pdMS_TO_TICKS(3000)                     /** Time to wait on queue before moving on to the next sample */
 
@@ -98,11 +100,15 @@ static const nrfx_twi_t twi = NRFX_TWI_INSTANCE(TWI_INSTANCE_ID);
 /* Task handles */
 TaskHandle_t CellTaskHandle;
 TaskHandle_t ledTaskHandle;
+TaskHandle_t mqttTaskHandle;
 
 /* Initial PDP config */
-CellularBLEConfig_t pdnConfig = { ATT_PDN, CELLULAR_PDN_CONTEXT_IPV4, "" };
+CellularBLEConfig_t pdnConfig = { '\0' };
 
 system_info_struct system_info;
+
+// Frame counter for payload
+static uint8_t frameCounter = 0;
 
 /* Flag to show car is running */
 bool canFail = false;
@@ -116,9 +122,6 @@ SC16IS750 sc16;
 MCP2515 mcp2515;         //Config and SPI data
 /* Empty MCP struct */
 MCP23008 mcp;
-
-/* The task function to setup cellular with thread ready environment. */
-static void CellularTask( void * pvParameters );
 
 /* Miscellaneous initialization including preparing the logging and cell. */
 static void prvMiscInitialization( void );
@@ -201,7 +204,7 @@ void j1939_transfer_task(void *pvParameters)
             /* Get HTTP Attributes here for now, Display attributes */
             for( uint8_t i = 0; i < num_HTTP_ATTRIBUTES; i++ )
             {
-                getHTTPAttributes(i,sharedAppAttr);
+                getAttributes(i,sharedAppAttr);
                 /* Check if attribute value is valid */
                 if(sharedAppAttr[0] != '\0')
                 {
@@ -372,7 +375,7 @@ static void obdii_task_function (void * pvParameters)
         /* Get HTTP Attributes here for now, Display attributes */
         for( uint8_t i = 0; i < num_HTTP_ATTRIBUTES; i++ )
         {
-            getHTTPAttributes(i,sharedAppAttr);
+            getAttributes(i,sharedAppAttr);
             /* Check if attribute value is valid */
             if(sharedAppAttr[0] != '\0')
             {
@@ -414,103 +417,6 @@ static void LEDTask( void * pvParameters )
         }
 
         vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-
-    vTaskDelete( NULL );
-}
-
-/*-----------------------------------------------------------*/
-
-static void CellularTask( void * pvParameters )
-{
-    ( void ) pvParameters;
-    #define ONE_MINUTE          (1 * 60 * 1000)  // 60000ms
-    #define FIVE_MINUTES        300 // 300s
-    bool retCellular = false;
-    bool modemSleep = false, modemInit = false;
-    uint32_t regTimeout = 900; //15 minutes, 900s
-    uint32_t transInt = 60;
-    cellParam cellParams = {0};
-
-    // Set cell parameters, must be called prior to scheduler starting if using SSL/TLS due to NRF SDK incompatibilities
-    strncpy(cellParams.appVersion, system_info.updateVerStr, strlen(system_info.updateVerStr));
-    strncpy(cellParams.brokerAddrPost, IOT_BROKER_ADDRESS_POST, strlen(IOT_BROKER_ADDRESS_POST));
-    strncpy(cellParams.brokerAddrGet, IOT_BROKER_ADDRESS_GET, strlen(IOT_BROKER_ADDRESS_GET));
-    cellParams.carrier = CELLULAR_CARRIER;
-    strncpy(cellParams.cert, CERTIFICATE, sizeof(CERTIFICATE));
-    cellParams.gnssStatus = TELIT_GNSS_STATUS;
-    cellParams.gnssInterval = GNSS_ATTEMPT_INTERVAL;
-    cellParams.gnssTimeout = GNSS_TIMEOUT;
-    strncpy(cellParams.serverAddrPrefixPost, SERVER_ADDR_PREFIX_POST, strlen(SERVER_ADDR_PREFIX_POST));
-    strncpy(cellParams.serverAddrPrefixGet, SERVER_ADDR_PREFIX_GET, strlen(SERVER_ADDR_PREFIX_GET));
-    strncpy(cellParams.serverAttribSuffix, SERVER_ADDR_SUFFIX_ATTR, strlen(SERVER_ADDR_SUFFIX_ATTR));
-    strncpy(cellParams.serverDownloadSuffix, SERVER_ADDR_SUFFIX_FOTA, strlen(SERVER_ADDR_SUFFIX_FOTA));
-    strncpy(cellParams.serverTelemSuffix, SERVER_ADDR_SUFFIX_TELE, strlen(SERVER_ADDR_SUFFIX_TELE));
-    cellParams.accessTokenInPathPost = SERVER_PATH_ACCESS_TOKEN_POST_ENABLED;
-    cellParams.accessTokenInPathGet = SERVER_PATH_ACCESS_TOKEN_GET_ENABLED;
-    strncpy(cellParams.pvtKey, PVT_KEY, sizeof(PVT_KEY));
-    strncpy(cellParams.rootCA1, ROOT_CA1, sizeof(ROOT_CA1));
-    strncpy(cellParams.mqttTopicString, MQTT_TOPIC, sizeof(MQTT_TOPIC));
-    cellParams.technology = CELLULAR_TECH;
-    cellParams.checksumMethod = otapal_CHECKSUM_METHOD;
-    cellParams.fotaFlashStart = otapal_FLASH_START;
-    cellParams.fotaDescrTblStart = otapal_DESCRIPTOR_START;
-    cellParams.fotaBankSize = otapal_BANK_SIZE;
-    cellParams.cellOnOffPin = CELL_ON_OFF;
-    cellParams.cellPwrEnPin = CELL_PWR_EN;
-    cellParams.cellRTSPin = CELL_RTS_PIN_NUMBER;
-    cellParams.payloadFormat = CELL_PAYLOAD_FORMAT;
-
-    // Initialize cell
-    retCellular = cellInit( &cellParams, &pdnConfig );
-
-    if( retCellular != true )
-    {
-        DBGE("Cellular failed to initialize.\r\n");
-    }
-    else
-    {
-        DBGI( ( "Cellular successfully initialized.\r\n" ) );  
-    }
-
-    for(;;)
-    {
-        /* If OBDII is failing then put unit to sleep by increasing trans interval to 300, cannot do this on power up as it require 2 runCell calls */
-        if( canFail == true && modemInit != false )
-        {
-            transInt = FIVE_MINUTES;
-            modemSleep = true;
-        }
-        else
-        {
-            transInt = cellTransInt;
-            modemSleep = false;
-        }
-
-        modemInit = true;
-
-        /* Enter task to send periodic data, either wait for queue entry or set delay */
-        runCellular(transInt, regTimeout );
-
-        // Sleep forever or until queue message is available
-        for(;;)
-        {
-            //Sleep for 1 minutes
-            vTaskDelay( pdMS_TO_TICKS( ONE_MINUTE ) );
-
-            //If there is message waiting in queue, then break
-            uint32_t msgsWaiting = uxQueueMessagesWaiting(xCellQueue);
-            if(msgsWaiting > 0 && canFail == false)
-            {
-                break;
-            }
-
-            //If we have lost OBDII comms and modem is awake, then break and put modem to sleep
-            if( canFail == true && modemSleep == false )
-            {
-                break;
-            }
-        }
     }
 
     vTaskDelete( NULL );
@@ -684,7 +590,7 @@ static void prvMiscInitialization( void )
         system_info.updateVerMaj = ( ( xDescriptor.updateVersion >> 24 ) & 0xFF );
         system_info.updateVerMin = ( ( xDescriptor.updateVersion >> 16 ) & 0xFF );
         system_info.updateVerBui = ( xDescriptor.updateVersion & 0xFFFF );
-        sprintf( system_info.updateVerStr,"%02x.%02x.%02lx", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
+        sprintf( system_info.updateVerStr,"%02x.%02x.%02x", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
     }
     else
     {
@@ -693,7 +599,7 @@ static void prvMiscInitialization( void )
         system_info.updateVerMin = VERSION_MINOR;
         system_info.updateVerBui = VERSION_BUILD;
         /* Set string version */
-        sprintf( system_info.updateVerStr,"%02d.%02d.%02ld", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
+        sprintf( system_info.updateVerStr,"%02x.%02x.%02x", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
     }
 
     /* Read production table in external flash */
@@ -792,8 +698,13 @@ static void prvMiscInitialization( void )
     nrf_gpio_cfg_input(MCP2515_INTERRUPT, NRF_GPIO_PIN_PULLUP);
 #endif
 
+    /* Cell needs a couple of seconds before starting */
+    nrf_delay_ms(2000);
+
+    DBGI( ( "Cell Task Initializing...\r\n" ) );
+
     cellularSemaphore = xSemaphoreCreateBinary();
-    if(cellularSemaphore == NULL){
+    if(!cellularSemaphore){
         DBGE("cellularSemaphore creation failed!");
     }
 
@@ -803,11 +714,24 @@ static void prvMiscInitialization( void )
         DBGE("xCellQueue creation failed!");
     }
 
-    #if defined(AZURE_MQTT_X509) || defined(AWS_MQTT_X509)
+    #if defined(THINGSBOARD_HTTPS_INTEGRATION) || defined(AZURE_MQTTS_X509) || defined(AWS_MQTTS_X509) || defined(AWS_HTTPS_X509) || defined(AZURE_MQTTS_SAS) || defined(AZURE_HTTPS_SAS)
     //If protocol is MQTT, then initialize crypto here
     if( nrf_crypto_init() != NRF_SUCCESS)
     {
         DBGE(("Failed to initialize nrf crypto"));
+    }
+    #endif
+
+    #if defined(AZURE_MQTTS_X509) || defined(AWS_MQTTS_X509)|| defined(AZURE_MQTTS_SAS)
+    //If protocol is MQTT and persistent then create task to manage connection
+    if( PERSISTENT_CONNECT_FLAG == false )
+    {
+        xTaskCreate( mqttTask,
+                    "mqttTask",
+                    MQTT_TASK_STACK_SIZE,
+                    NULL,
+                    tskIDLE_PRIORITY+2,
+                    &mqttTaskHandle );
     }
     #endif
 

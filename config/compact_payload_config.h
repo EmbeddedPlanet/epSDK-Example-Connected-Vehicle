@@ -42,7 +42,7 @@
 #endif
 /* *INDENT-ON* */
 
-#define EPCP_VERSION 0x04   /** < EP Compact Payload V4 */
+#define EPCP_VERSION 0x08   /** < EP Compact Payload V8 */
 
 /**
  * @brief Sensor ID Numbers
@@ -54,20 +54,20 @@
  * 
  */
 typedef enum epcp_sensor_id{
-    EPCP_SYSTEM      = 0x01,
-    EPCP_SYSTEM_FULL = 0x01,
-    EPCP_SYSTEM_V2   = 0x02,
-    EPCP_SYSTEM_CON  = 0x02,
-    EPCP_CELL        = 0x05,
-    EPCP_GNSS        = 0x06,
-    EPCP_SI7021      = 0x07,
-    EPCP_BME680      = 0x08,
-    EPCP_ICM20602    = 0x09,
-    EPCP_LSM9DS1     = 0x0A,
-    EPCP_VL53L0X     = 0x0B,
-    EPCP_OBDII       = 0x0C,
-    EPCP_CE          = 0x0D,
-    EPCP_J1939       = 0x0E
+    EPCP_SYSTEM    = 0x01,
+    EPCP_SYSTEM_V2     = 0x02,
+    //0x03 - 0x04 reserved for future use
+    EPCP_CELL       = 0x05,
+    EPCP_GNSS       = 0x06,
+    EPCP_GTP        = 0x07,
+    EPCP_SI7021     = 0x08,
+    EPCP_BME680     = 0x09,
+    EPCP_ICM20602   = 0x0A,
+    EPCP_LSM9DS1    = 0x0B,
+    EPCP_VL53L0X    = 0x0C,
+    EPCP_OBDII      = 0x0D,
+    EPCP_CE         = 0x0E,
+    EPCP_J1939      = 0x0F
 }EPCP_SENSOR_ID;
 
 /**
@@ -78,17 +78,16 @@ typedef enum epcp_sensor_id{
  * P399x024.
  */
 typedef enum epcp_sensor_packet_size{
-    EPCP_SYSTEM_SIZE      = 19,
-    EPCP_SYSTEM_FULL_SIZE = 19,
-    EPCP_SYSTEM_V2_SIZE   = 9,
-    EPCP_SYSTEM_CON_SIZE  = 9,
-    EPCP_CELL_SIZE        = 10,
-    EPCP_GNSS_SIZE        = 7,
-    EPCP_SI7021_SIZE      = 6,
-    EPCP_BME680_SIZE      = 25,
-    EPCP_ICM20602_SIZE    = 14,
-    EPCP_LSM9DS1_SIZE     = 21,
-    EPCP_VL53L0X_SIZE     = 6
+    EPCP_SYSTEM_SIZE    = 19,
+    EPCP_SYSTEM_V2_SIZE = 9,
+    EPCP_CELL_SIZE      = 10,
+    EPCP_GNSS_SIZE      = 10,
+    EPCP_GTP_SIZE       = 13,
+    EPCP_SI7021_SIZE    = 6,
+    EPCP_BME680_SIZE    = 25,
+    EPCP_ICM20602_SIZE  = 14,
+    EPCP_LSM9DS1_SIZE   = 21,
+    EPCP_VL53L0X_SIZE   = 6
     //EPCP_OBDII_SIZE       = xx OBDII size is determined dynamically
     //EPCP_CE_SIZE          = xx Connected Equipment size is determined dynamically
     //EPCP_J1939_SIZE       = xx J1939 size is determined dynamically
@@ -114,8 +113,12 @@ typedef enum epcp_sensor_slot_type{
     EPCP_ICCID,         //Cell ICCID
     EPCP_RSSI,          //Cell RSSI
     EPCP_RSRQ,          //Cell RSRQ
+    EPCP_SAT,           //GNSS Satellites
     EPCP_LAT,           //GNSS Latitude
-    EPCP_LON,           //GNSS Latitude
+    EPCP_LON,           //GNSS Longitude
+    EPCP_GTP_LAT,       //GPT Latitidue
+    EPCP_GTP_LON,       //GPT Longitude
+    EPCP_GTP_ACC,       //GTP Accuracy
     EPCP_ALARMS,        //Active sensor alarms
     EPCP_TIME,          //System time or run time
     EPCP_BATT,          //Battery voltage
@@ -138,15 +141,8 @@ typedef enum epcp_sensor_slot_type{
     EPCP_MAG_Z,         //Magnetometer z-axis reading
     EPCP_TILT_ANG,      //Tilt angle
     EPCP_DIST,          //Distance reading
-    EPCP_ACTIVE_CHANNELS,//Used to indicate the number of channels present in a CE subpacket.
-    EPCP_4_20_CH1,      //4-20mA Ch1 reading
-    EPCP_4_20_CH2,      //4-20mA Ch2 reading
-    EPCP_4_20_CH3,      //4-20mA Ch3 reading
-    EPCP_4_20_CH4,      //4-20mA Ch4 reading
-    EPCP_0_5_CH1,       //0-10V Ch1 reading
-    EPCP_0_5_CH2,       //0-10V Ch1 reading
-    EPCP_0_5_CH3,       //0-10V Ch1 reading
-    EPCP_0_5_CH4,       //0-10V Ch1 reading
+    EPCP_4_20,          //4-20mA reading
+    EPCP_0_10,          //0-10V reading
     EPCP_DRY,           //Dry contact reading
     EPCP_PWR,           //Input power voltage
     EPCP_ELEMENT_CNT,   // Element count

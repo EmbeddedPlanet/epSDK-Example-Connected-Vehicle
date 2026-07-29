@@ -87,6 +87,7 @@ SRC_FILES += \
 # Required Project Source Files
 SRC_FILES += \
   ../source/main.c \
+  ../source/cellularTask.c \
 
 # Include folders common to all targets
 INC_FOLDERS += \
