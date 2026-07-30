@@ -487,10 +487,6 @@ extern bool newDataAdded;
 /* The task function to setup cellular with thread ready environment. */
 extern void CellularTask( void * pvParameters );
 
-/* The task function to manage the mqtt connection. */
-extern void mqttTask( void * pvParameters );
-extern TaskHandle_t mqttTaskHandle;
-
 //////////////////////////////////////////////////
 /****                                        ****/
 /****               BLUETOOTH                ****/

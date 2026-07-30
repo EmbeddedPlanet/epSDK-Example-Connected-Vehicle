@@ -100,7 +100,6 @@ static const nrfx_twi_t twi = NRFX_TWI_INSTANCE(TWI_INSTANCE_ID);
 /* Task handles */
 TaskHandle_t CellTaskHandle;
 TaskHandle_t ledTaskHandle;
-TaskHandle_t mqttTaskHandle;
 
 /* Initial PDP config */
 CellularBLEConfig_t pdnConfig = { '\0' };
@@ -719,19 +718,6 @@ static void prvMiscInitialization( void )
     if( nrf_crypto_init() != NRF_SUCCESS)
     {
         DBGE(("Failed to initialize nrf crypto"));
-    }
-    #endif
-
-    #if defined(AZURE_MQTTS_X509) || defined(AWS_MQTTS_X509)|| defined(AZURE_MQTTS_SAS)
-    //If protocol is MQTT and persistent then create task to manage connection
-    if( PERSISTENT_CONNECT_FLAG == false )
-    {
-        xTaskCreate( mqttTask,
-                    "mqttTask",
-                    MQTT_TASK_STACK_SIZE,
-                    NULL,
-                    tskIDLE_PRIORITY+2,
-                    &mqttTaskHandle );
     }
     #endif
 
