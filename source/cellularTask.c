@@ -72,7 +72,7 @@ void CellularTask( void * pvParameters )
 {
     #define REG_TIMEOUT      900    // 900s
     bool retCellular = false;
-    static bool first_run = true, skipInit = true;
+    static bool first_run = true;
     uint32_t lastGnssTime = 0, lastGtpTime = 0, sasTokenTimer = 0, currentTime = 0;
     bool fotaAvailable = false;
     int32_t httpsRespSize = 0;
@@ -81,12 +81,10 @@ void CellularTask( void * pvParameters )
     /* Immediately call initCell to get IMEI, keep modem powered and wait for more data */
     if( initCell() != true ){
         DBGE("Failed to initialize cell, delay and retry\r\n");
-        /* Reset flag so function will try again */
-        skipInit = false;
     }
-    else{
-        skipInit = true;
-    }
+
+    /* Shut down cell and wait for connection to ECU */
+    closeCell(MODEM_SLEEP_STATE);
 
     while(1){
         uint8_t satellites = 0;
@@ -97,22 +95,14 @@ void CellularTask( void * pvParameters )
         if(newDataAdded == true && xQueuePeek(xCellQueue, NULL, 0) == pdTRUE){
             /* Clear flag */
             newDataAdded = false;
-            if(!first_run){
-                // Reenable LED task
-                led_resume();
-                vTaskResume( ledTaskHandle );
-            }
 
             /* Initialize cell library and startup modem hardware, don't need to call on first run */
-            if( !skipInit && initCell() != true ){
+            if( initCell() != true ){
                 DBGE("Failed to initialize cell, delay and retry\r\n");
                 closeCell(MODEM_SLEEP_STATE);
                 vTaskDelay(pdMS_TO_TICKS(5000));
                 continue;
             }
-
-            /* Clear flag */
-            skipInit = false;
 
             /* Get current time */
             currentTime = get_time_s();
@@ -259,7 +249,7 @@ void CellularTask( void * pvParameters )
             }
             
             /* Run Thingsboard FOTA if detected, currently only supported on http */
-            if(fotaAvailable == true && ( IOT_BROKER_ADDRESS_GET, "thingsboard" ) != NULL && ( IOT_BROKER_ADDRESS_GET, "http://" ) != NULL){
+            if(fotaAvailable == true && strstr( IOT_BROKER_ADDRESS_GET, "thingsboard" ) != NULL && strstr( IOT_BROKER_ADDRESS_GET, "http://" ) != NULL){
                 runThingsboardFOTA(IOT_BROKER_ADDRESS_GET, SERVER_ADDR_PREFIX_GET, SERVER_ADDR_SUFFIX_FOTA);
             }
             else if(strstr( IOT_BROKER_ADDRESS_GET, "amazonaws" ) != NULL && strstr( IOT_BROKER_ADDRESS_POST, "mqtts://" ) != NULL){
@@ -272,11 +262,6 @@ void CellularTask( void * pvParameters )
             }
 
             closeCell(MODEM_SLEEP_STATE);
-
-            // Suspend LED task
-            vTaskSuspend( ledTaskHandle );
-            // Enable debug out for LED
-            led_pause();
         }
         /* Delay between checking queue*/
         vTaskDelay(pdMS_TO_TICKS(5000));

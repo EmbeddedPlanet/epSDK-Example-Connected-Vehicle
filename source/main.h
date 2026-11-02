@@ -36,7 +36,7 @@
  * This source file is private and confidential.
  * Unauthorized copying of this file is strictly prohibited.
  * 
- * Version 1.0 - 01SEPT22  Initial, ported from: https://github.com/EmbeddedPlanet/nrf_sdk_17_1/tree/master/examples/ble_peripheral/ble_app_hrs_freertos, golobmichael
+ * Version 1.0 - 01SEPT22  Initial, golobmichael
  */
 #ifndef __MAIN_H__
 #define __MAIN_H__
@@ -57,10 +57,10 @@
 /* General defines */
 
 /* Version needs to be defined as string and ints */
-#define VERSION_NUM                         "00.00.44"                                   /**< Version. Will be passed to Device Information Service. */
+#define VERSION_NUM                         "00.00.46"                                   /**< Version. Will be passed to Device Information Service. */
 #define VERSION_MAJOR                       0
 #define VERSION_MINOR                       0
-#define VERSION_BUILD                       44
+#define VERSION_BUILD                       46
 
 /* Length of EP serial number is 6 characters */
 #define SERIAL_LENGTH   6
@@ -176,7 +176,7 @@ extern system_info_struct system_info;
 #define MODEM_SLEEP_STATE   MODEM_OFF
 
 /* Enable GTP Location Functional */
-#define GTP_STATUS          true
+#define GTP_STATUS          false
 
 /* MQTT Persistent Connection Flag */
 #define PERSISTENT_CONNECT_FLAG     false   // false: disconnect with empty queue, true: maintain connection
@@ -486,19 +486,6 @@ extern bool newDataAdded;
 
 /* The task function to setup cellular with thread ready environment. */
 extern void CellularTask( void * pvParameters );
-
-//////////////////////////////////////////////////
-/****                                        ****/
-/****               BLUETOOTH                ****/
-/****                                        ****/
-//////////////////////////////////////////////////
-
-/**< Used to activate/deactivate BLE in the main application
- * 
- *   0 = Deactivated
- *   1 = Activated
- */
-#define BLE_ACTIVE     0
 
 //////////////////////////////////////////////////
 /****                                        ****/

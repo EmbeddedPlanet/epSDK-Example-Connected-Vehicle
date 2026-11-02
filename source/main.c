@@ -63,7 +63,6 @@
 #include "mcp23008.h"
 #include "qspi_helper.h"
 #include "led_helper.h"
-#include "j1939_helper.h"
 #include "time_helper.h"
 #include "obdii.h"
 #include "sc16is750.h"
@@ -178,105 +177,6 @@ void twi_init (void)
 }
 
 /*-----------------------------------------------------------*/
-#if J1939_ACTIVE == 1
-/**
- * @brief The J1939 task function parses and sends the data into the cell queue.
- *
- * @param[in] pvParameter   Pointer that will be used as the parameter for the task.
- */
-void j1939_transfer_task(void *pvParameters)
-{
-    /* String for http app attributes */
-    char sharedAppAttr[MAX_ATTR_VALUE_LENGTH] = {'\0'};
-    uint16_t dlyCnt = 0;
-    
-    while(1)
-    {
-        init_uart(TASK_3);
-
-        /* If time expried */
-        if( dlyCnt > cellTransInt )
-        {
-            /* Create J1939 message */
-            Create_J1939_Msg(system_info.ep_serial, updateVerMaj, updateVerMin, updateVerBui);
-
-            /* Get HTTP Attributes here for now, Display attributes */
-            for( uint8_t i = 0; i < num_HTTP_ATTRIBUTES; i++ )
-            {
-                getAttributes(i,sharedAppAttr);
-                /* Check if attribute value is valid */
-                if(sharedAppAttr[0] != '\0')
-                {
-                    /* For this app, only 1 attribute used, and its for cell transmission interval, overwrite this value */
-                    cellTransInt = ( uint32_t ) strtoul( sharedAppAttr, NULL, 10 );
-                    DBGI("New Cell Transmission Interval: %ds",cellTransInt);
-                }
-            }
-
-            /* Reset timer */
-            dlyCnt = 0;
-        }
-
-        /* Check if its been 30s since receiving active dtc, then de-activate dtc */
-        J1939_DTC_Status_Check();
-
-        /* Increment delay counter */
-        dlyCnt++;
-
-        /* Delay */
-        vTaskDelay(pdMS_TO_TICKS(2000));
-
-        uninit_uart(TASK_3);
-    }
-
-    vTaskDelete( NULL );
-}
-
-/**
- * @brief The J1939 task function which controls reading in of J1939 messages.
- *
- * @param[in] pvParameter   Pointer that will be used as the parameter for the task.
- */
-static void j1939_task_function (void * pvParameters)
-{
-    init_uart(TASK_4);
-
-    if (can_init_j1939( &mcp2515 ))
-    {
-       DBGI("Initialized CAN successfully");
-    }
-    else
-    {
-       DBGE("CAN controller init error");
-    }
-
-    // J1939 Parse SPN and send to cell, create after J1939 initialized
-    xTaskCreate(j1939_transfer_task,
-                "J1939transfertask",
-                2000,
-                NULL,
-                tskIDLE_PRIORITY+2,
-                NULL);
-
-    while (true)
-    {
-        /* Check to see if receive interrupt received */
-        while(nrf_gpio_pin_read(MCP2515_INTERRUPT) == 0)
-        {
-            /* Parse message */
-            Parse_J1939_Data( &mcp2515 );        
-            
-            // Monitor FreeRTOS stack usage
-            DBGI("FreeRTOS Heap Remaining: %d Bytes", xPortGetFreeHeapSize());
-        }
-        /* Give delay between passess */
-        vTaskDelay(pdMS_TO_TICKS(3));
-    }
-}
-
-#endif
-
-/*-----------------------------------------------------------*/
 
 #if OBDII_ACTIVE == 1
 /**
@@ -324,8 +224,10 @@ static void obdii_task_function (void * pvParameters)
             }
             /* Shutoff CAN */
             nrf_gpio_pin_clear(CAN_PWR_ENABLE);
+            #if defined(BOARD_AGORA) || defined(BOARD_AGORA_2)
             //Set the MCP1515 in reset to prevent the wiring from being a current leakage path
             nrf_gpio_pin_clear(CAN_RESET);
+            #endif
             /* Uninit UART */
             uninit_uart(TASK_4);
             /* Delay, put unit to sleep */
@@ -334,7 +236,9 @@ static void obdii_task_function (void * pvParameters)
             init_uart(TASK_4);
             //Enable power to the MCP2515
             nrf_gpio_pin_set(CAN_PWR_ENABLE);
+            #if defined(BOARD_AGORA) || defined(BOARD_AGORA_2)
             nrf_gpio_pin_set(CAN_RESET);
+            #endif
             vTaskDelay(pdMS_TO_TICKS(1000));
             //Put the MCP registers back in place after power was cut
             if (can_init_obdii(&mcp2515))
@@ -384,9 +288,6 @@ static void obdii_task_function (void * pvParameters)
             }
         }
 
-        // Monitor FreeRTOS stack usage
-        DBGI("FreeRTOS Heap Remaining: %d Bytes", xPortGetFreeHeapSize());
-
         /* Delay */
         vTaskDelay(pdMS_TO_TICKS(cellTransInt*1000));
     }
@@ -394,6 +295,7 @@ static void obdii_task_function (void * pvParameters)
     vTaskDelete( NULL );
 }
 #endif
+
 /*-----------------------------------------------------------*/
 
 static void LEDTask( void * pvParameters )
@@ -551,7 +453,6 @@ static void prvMiscInitialization( void )
 
     // Initialize modules.
     init_uart(MAIN_LOOP);
-    init_swo();
     uart_helper.dbgi = true;
 
     // Initialize time helper
@@ -598,7 +499,7 @@ static void prvMiscInitialization( void )
         system_info.updateVerMin = VERSION_MINOR;
         system_info.updateVerBui = VERSION_BUILD;
         /* Set string version */
-        sprintf( system_info.updateVerStr,"%02x.%02x.%02x", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
+        sprintf( system_info.updateVerStr,"%02d.%02d.%02d", system_info.updateVerMaj, system_info.updateVerMin, system_info.updateVerBui );
     }
 
     /* Read production table in external flash */
@@ -682,19 +583,6 @@ static void prvMiscInitialization( void )
                 NULL,
                 tskIDLE_PRIORITY+2,
                 NULL);
-#endif
-
-#if J1939_ACTIVE == 1
-    // J1939 Tasks and timer
-    xTaskCreate(j1939_task_function,
-                "J1939readtask",
-                2000,
-                NULL,
-                tskIDLE_PRIORITY+4,
-                NULL);
-
-    /* Set interrupt pin for J1939 */
-    nrf_gpio_cfg_input(MCP2515_INTERRUPT, NRF_GPIO_PIN_PULLUP);
 #endif
 
     /* Cell needs a couple of seconds before starting */

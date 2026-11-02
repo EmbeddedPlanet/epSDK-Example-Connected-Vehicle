@@ -93,6 +93,11 @@ typedef struct OBDII_DATA
  */
 extern OBDII_DATA_t obdii_data[];
 
+/**
+* @brief The number of available elements in obdii_data[]
+*/
+extern uint32_t pidTableLen;
+
 /** @brief Used to hold engineering data for a DTC from the vehicle ECU.
  *         The data can be accessed globally.
  * 
@@ -134,6 +139,18 @@ extern OBDII_DTC_DATA_t OBDII_DTC_data;
 bool can_init_obdii( MCP2515 *mcp2515 );
 
 /**
+ * @brief   Test a specific PID for availability.  Service 1 availablity is set at OBDII initialization.  Service 2 PIDs are the same as Service 1 but
+ *          may not be available until an DTC error is set.  The OBDII structure must be initialized with vehicle ECU data before calling this function.
+ * 
+ * @param obdii        Pointer to the OBDII structure
+ * @param service       the OBDII service
+ * @param pid           the pid to be tested
+ * 
+ * @return  true if the PID is available from the vehicle ECU.
+ */
+bool is_pid_supported(OBDII_t *obdii, uint8_t service, uint8_t pid);
+
+/**
  * @brief   Setup OBDII data to go to cell queue 
  * 
  * @param ep_serial        Serial number of device
@@ -156,9 +173,6 @@ bool Gather_General_OBDII_Info( MCP2515 *mcp2515 );
 /**
  * @brief   Read all available data for selected service
  * 
- * @param mcp215       Structure holding config data of MCP2515.
- * @param service      Service from the list above titled OBDII Service Modes
- * 
  */
 void Read_OBDII_Data( MCP2515 *mcp2515, uint8_t service );
 
@@ -171,4 +185,3 @@ void Read_OBDII_Data( MCP2515 *mcp2515, uint8_t service );
 void Update_PID_Status( uint8_t pid, bool status );
 
 #endif
-
